@@ -60,6 +60,26 @@
 * [开始Unity Shader学习之旅](#开始unity-shader学习之旅)
   * [环境介绍](#环境介绍)
   * [一个最简单的顶点/片元着色器](#一个最简单的顶点片元着色器)
+    * [顶点/片元着色器的基本结构](#顶点片元着色器的基本结构)
+    * [模型数据从哪来](#模型数据从哪来)
+    * [顶点着色器和片元着色器之间如何通信](#顶点着色器和片元着色器之间如何通信)
+    * [如何使用属性](#如何使用属性)
+  * [Unity提供的内置文件和变量](#unity提供的内置文件和变量)
+  * [Unity提供的CG/HLSL语义](#unity提供的cghlsl语义)
+    * [Unity支持的语义](#unity支持的语义)
+  * [Shader的debug](#shader的debug)
+    * [使用假彩色图像](#使用假彩色图像)
+    * [通过VS](#通过vs)
+    * [通过Unity的帧调试器(Frame Debugger)](#通过unity的帧调试器frame-debugger)
+  * [小心渲染平台的差异](#小心渲染平台的差异)
+    * [渲染纹理坐标的差异](#渲染纹理坐标的差异)
+    * [Shader语法差异](#shader语法差异)
+    * [Shader语义差异](#shader语义差异)
+  * [Shader整洁之道](#shader整洁之道)
+    * [float half fixed](#float-half-fixed)
+    * [避免不必要的计算](#避免不必要的计算)
+    * [慎用分支与循环](#慎用分支与循环)
+    * [不要除以0](#不要除以0)
 
 ## 欢迎来到Shader的世界
 
@@ -749,8 +769,175 @@ CG中矩阵类型都是类似float3\*3 float4\*4之类的, 而对于float3 float
 
 [SimpleShader](/New%20Unity%20Project/Assets/Shader/Chapter5/SimpleShader.shader)
 
+#### 顶点/片元着色器的基本结构
+
 * 无需Properties, 非必须
 * Subshader中不需要进行任何渲染设置与标签设置, 因此使用默认设置
   * 定义了一个Pass, 其中同样没有进行设置
     * 其中CGPROGRAM与ENDCG包围了CG代码片段, **本次重点**
 
+#### 模型数据从哪来
+
+自定义的结构体结构如下
+
+```shaderlab
+struct StructName{
+    Type Name : Semantic;
+};
+```
+
+其中语义的数据从Unity中的使用该材质的Mesh Render组件提供, 每帧调用Draw Call的时候, Mesh Render
+将它负责的渲染模型数据发送给Unity Shader
+
+#### 顶点着色器和片元着色器之间如何通信
+
+* 顶点着色器的输出结构必须包含SV_POSITION结构, 否则渲染器无法得到裁剪空间中的坐标, 从而无法将顶点渲染到屏幕上
+* 顶点着色器是逐顶点调用, 片元着色器逐片元调用, 片元着色器的输入实际上就是把顶点着色器的输出进行插值后得到的结果
+
+#### 如何使用属性
+
+写在properties中的属性, 需要在CG代码中声明一个与属性对应的类型变量才能够访问(废话 不同代码块当然要这样)
+
+| ShaderLab属性类型 |      CG变量类型       |
+| :---------------: | :-------------------: |
+|   Color, Vector   | float4, half4, fixed4 |
+|   Range, Float    |  float, half, fixed   |
+|        2D         |       sampler2D       |
+|       Cube        |      samplerCube      |
+|        3D         |       sampler3D       |
+
+### Unity提供的内置文件和变量
+
+包含文件(includ file), 后缀.cginc, 类似c++的头文件, 使用方法如下
+
+```shaderlab
+CGPROGRAM
+//...
+
+#include "UnityCG.cginc"
+
+//...
+ENDCG
+```
+
+### Unity提供的CG/HLSL语义
+
+语义(semantic), 可以见微软DX的文档中<https://docs.microsoft.com/zh-cn/windows/win32/direct3dhlsl/dx-graphics-hlsl-semantics>
+
+其中Unity会对一些语义进行特殊的规定, 以方便模型数据的传输, 如TEXCOORD0, 在a2f结构体中有"第一组纹理坐标"这个特殊含义
+
+在DirectX10后, 有新的语义类型, 系统数值语义(system-value semantic), 开头以SV开头, 在渲染流水线中有特殊意义
+
+#### Unity支持的语义
+
+应用阶段传递模型数据给顶点着色器的常用语义(顶点着色器输入)
+
+|   语义    |                 描述                  |
+| :-------: | :-----------------------------------: |
+| POSITION  |   模型空间中的顶点位置, 通常float4    |
+|  NORMAL   |         顶点法线, 通常float3          |
+|  TANGENT  |         顶点切线, 通常float4          |
+| TEXCOORDn | 顶点第n组纹理坐标, 通常float2或float4 |
+|   COLOR   |     顶点颜色, 通常fixed4或float4      |
+
+顶点着色器到片元着色器
+
+|        语义         |                     描述                     |
+| :-----------------: | :------------------------------------------: |
+|     SV_POSITION     | 裁剪空间的顶点坐标, 顶点到片元的结构体的必须 |
+|       COLOR0        |      通常用于输出第一组顶点颜色, 非必须      |
+|       COLOR1        |      通常用于输出第二组顶点颜色, 非必须      |
+| TEXCOORD0~TEXCOORD7 |         通常用于输出纹理坐标, 非必须         |
+
+片元着色器输出
+
+|   语义    |          描述          |
+| :-------: | :--------------------: |
+| SV_Target | 输出值存储到渲染目标中 |
+
+### Shader的debug
+
+调试麻烦 没有输出 无法单步 基本上之前写的代码debug经验都很难用在这里
+
+#### 使用假彩色图像
+
+假彩色图像(false-color image)指的是用假彩色技术生成的一种图像, 与之相对应的是真色彩图像(true-color image)
+
+将调试的变量映射到(0,1)之间, 并将之做为颜色输出到屏幕上
+
+注意变量的取值范围, 针对多个变量可以逐一写测试
+
+#### 通过VS
+
+<https://docs.unity3d.com/cn/current/Manual/SL-DebuggingD3D11ShadersWithVS.html>
+
+#### 通过Unity的帧调试器(Frame Debugger)
+
+通过停止渲染来查看渲染事件
+
+### 小心渲染平台的差异
+
+虽然Unity的优点就是跨平台, 但有的时候需要手动去处理不同平台的差异
+
+#### 渲染纹理坐标的差异
+
+![OpenGL与DirectX使用不同屏幕空间坐标](images/5.8.png)
+
+我们不仅可以把渲染结果输出到屏幕上, 还可以输出到不同的渲染目标中, 这是就需要使用渲染纹理(Render Texture)来保存渲染结果
+
+把屏幕图像渲染到纹理中, DirectX会产生纹理翻转的情况, Unity会自动翻转
+
+而当我们开启抗锯齿(anti aliasing)并使用到了渲染纹理中, 此时Unity不会自动翻转
+
+TODO: 留个坑, 之后项目肯定会有涉及到这个的, 加深理解
+
+#### Shader语法差异
+
+DirectX相对于OpenGL对shader语义更加严格
+
+#### Shader语义差异
+
+* 使用SV_POSITION来描述顶点着色器输出的顶点位置
+* 使用SV_Target来描述片元着色器的输出颜色
+
+### Shader整洁之道
+
+Shader代码的规范问题
+
+#### float half fixed
+
+* 桌面GPU会把所有计算按照最高精度进行计算, 因此三者等价
+* 移动平台的GPU会有不同的精度范围, 确保在真正的移动平台上验证shader
+  * 是手机之类的移动平台, 不是便携式PC(笔记本的GPU还不是一样和PC是A N两家的)
+* fixed只在较旧的移动平台上有用, 在多数现代GPU上, fixed等同于half
+
+#### 避免不必要的计算
+
+Shader进行大量计算就会出现, 需要的临时寄存器不够或者指令数目超过当前可支持的数目
+
+```ShaderLab
+temporary register limit of 8 exceed
+Arithmetic instruction limit of 64 exceed;
+65 arithmetic instruction needed to compile program
+```
+
+通过下个表格可以指定不同等级的Shader Target来消除这些错误
+
+Unity 5.3之后对Shader Target进行了调整，该表列出的是5.2版本及以前的Shader Target
+
+|        指令        |                         描述                          |
+| :----------------: | :---------------------------------------------------: |
+| #pragma target 2.0 |      默认的等级, 相当于D3D9上的Shader Model 2.0       |
+| #pragma target 3.0 |            相当于D3D9上的Shader Model 3.0             |
+| #pragma target 4.0 | 相当于D3D10上的Shader Model 4.0, 只在DX11平台提供支持 |
+| #pragma target 5.0 | 相当于D3D11上的Shader Model 5.0, 只在DX11平台提供支持 |
+
+所有OpenGL平台支持Model3.0
+
+#### 慎用分支与循环
+
+GPU使用了与CPU不同的技术来实现分支语句, 代价会很大, 因此Shader尽量不使用分支控制
+
+#### 不要除以0
+
+除数可能为0的时候, 强制截取到非0范围
