@@ -1,4 +1,4 @@
-﻿Shader "Custom/FalseColorShader"
+﻿Shader "Custom/Chapter5/FalseColorShader"
 {
     SubShader
     {

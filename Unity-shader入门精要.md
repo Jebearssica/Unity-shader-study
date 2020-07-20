@@ -80,6 +80,24 @@
     * [避免不必要的计算](#避免不必要的计算)
     * [慎用分支与循环](#慎用分支与循环)
     * [不要除以0](#不要除以0)
+* [Unity中的基础光照](#unity中的基础光照)
+  * [我们是如何看到这个世界的](#我们是如何看到这个世界的)
+    * [光源](#光源)
+    * [吸收与散射](#吸收与散射)
+    * [着色(shading)](#着色shading)
+    * [BRDF光照模型](#brdf光照模型)
+  * [标准光照模型](#标准光照模型)
+    * [逐像素还是逐顶点计算](#逐像素还是逐顶点计算)
+  * [Unity中的环境光与自发光](#unity中的环境光与自发光)
+  * [在Unity Shader中实现漫发射光照模型](#在unity-shader中实现漫发射光照模型)
+    * [逐顶点光照的实现](#逐顶点光照的实现)
+    * [逐像素光照的实现](#逐像素光照的实现)
+    * [半兰伯特(Half Lambert)模型](#半兰伯特half-lambert模型)
+  * [在Unity Shader中实现高光反射光照模型](#在unity-shader中实现高光反射光照模型)
+    * [实践: 逐顶点光照](#实践-逐顶点光照)
+    * [实践: 逐像素光照](#实践-逐像素光照)
+    * [Blinn-Phong光照模型](#blinn-phong光照模型)
+  * [使用Unity内置的函数](#使用unity内置的函数)
 
 ## 欢迎来到Shader的世界
 
@@ -941,3 +959,181 @@ GPU使用了与CPU不同的技术来实现分支语句, 代价会很大, 因此S
 #### 不要除以0
 
 除数可能为0的时候, 强制截取到非0范围
+
+## Unity中的基础光照
+
+本章主要讲光照模型的原理, 可以配合着之前的DX教程里的光照部分一起食用
+
+### 我们是如何看到这个世界的
+
+这个小节很基础
+
+#### 光源
+
+* 通过辐射度(irradiance)来量化光
+  * 对于平行光而言, 通过垂直于光方向的单位面积在单位时间内穿过的能量来得到
+  * 通常物体表面与光源方向不垂直, 就通过余弦计算
+
+#### 吸收与散射
+
+* 散射(scattering): 只改变光线方向, 不改变光线密度与颜色
+  * 折射(refraction)或透射(transmission): 散射到内部
+  * 反射(reflection): 散射到外部
+* 吸收(absorption): 只改变光线密度与颜色, 不改变光线方向
+* 使用高光反射(specular)表示物体表面如何反射
+* 使用漫反射(diffuse)表示光线有多少被折射吸收散射
+  * 使用出射度(exitance)来描述出射光线的数量与方向
+
+#### 着色(shading)
+
+根据材质属性 光源信息 使用光照模型去计算沿某个观察方向的出射度情况
+
+#### BRDF光照模型
+
+Bidirectional Reflection Distribution Function能够反映物体表面如何与光线进行交互的
+
+这些光照模型都是经验模型, 是实际情况的理想化与简化版本(因此才需要光线追踪?)
+
+### 标准光照模型
+
+一种古老的模型, 只关注直接光照(direct light), 也就是直接从光源发出照到物体表面后, 经过一次反射直接进入摄像机的光线, 将光线分为以下四种
+
+* 自发光(emissive): 描述一个确定方向表面会向该方向发射多少辐射量, 如果没有使用全局光照, 这些自发光的表面不会照亮周围物体
+  * 直接使用该材质的自发光颜色
+
+* 高光反射: 描述光源照到模型表面, 该表面完全镜面反射
+
+使用Phong模型来计算高光部分
+
+![Phong模型](images/6.3.png)
+
+$$
+c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{v} \cdot \vec{r})^{m_{gloss}}\\
+其中m_{gloss}是材质光泽度(gloss), 又称反光度(shininess), 控制高光区域亮点大小\\
+m_{specular}是材质高光反射颜色
+$$
+
+使用Blinn模型进行修改, 避免计算反射方向
+
+注意: 这只是修改, 而非改良, 两者适用于不同的环境
+
+![Blinn模型](images/6.4.png)
+
+$$
+引入
+<<<<<<< HEAD
+\vec{h}=\frac{\vec{v}+1}{|\vec{v}+1|}\\
+=======
+\vec{h}=\frac{\vec{v}+\vec{I}}{|\vec{v}+\vec{I}|}\\
+>>>>>>> Chapter6 completed
+c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{n} \cdot \vec{h})^{m_{gloss}}\\
+$$
+
+* 漫反射: 表面会向每个方向散射多少辐射量
+  * 符合兰伯特定律(Lambert's law): 反射光的强度与表面法线和光源方向之间的角度余弦值成正比
+
+$$
+c_{diffuse}=(c_{light}\cdot m_{diffuse})max(0,n\cdot I)\\
+其中n是表面法线, I是指向光源的单位矢量,  m_{diffuse}是材质漫发射颜色, c_{light}是光源颜色\\
+使用max是为了截取范围到0, 防止负数以及后方光源点亮物体
+$$
+
+* 环境光(ambient): 描述其他所有的间接光照(indirect light)
+  * 通常使用一个全局变量进行模拟, 使得场景所有物体都使用这个环境光
+
+#### 逐像素还是逐顶点计算
+
+* 在片元着色器中计算, 就是逐像素光照
+  * 使用Phong着色: 以每个像素为基础, 得到其法线, 然后进行光照模型计算, 这种在面片之间对顶点法线进行插值的技术被称为Phong着色, 又称Phong插值或法线插值着色技术
+* 在顶点着色器中计算, 就是逐顶点光照
+  * 又称高洛德着色(Gouraud shading): 每个顶点计算光照, 然后在渲染图元的内部进行线性插值, 最后输出成像素颜色
+* 对比:
+  * 顶点数小于像素数, 因此逐顶点计算量小
+  * 逐顶点需要依赖于线性插值来得到像素光照, 因此光照模型中出现了非线性计算(如计算高光反射时), 逐顶点光照会出现问题
+
+### Unity中的环境光与自发光
+
+非常简单, 只需要调节内部变量UNITY_LIGHTMODEL_AMBIENT就可以完成
+
+自发光则只需要在片元着色器输出最后颜色之前把材质的自发光颜色加上即可
+
+### 在Unity Shader中实现漫发射光照模型
+
+防止点积结果为负数, 可以使用saturate()函数
+
+* 可将变量x截取在[0,1], 如果x是矢量, 则对每个分量都进行这样的操作
+
+#### 逐顶点光照的实现
+
+[DiffuseVertexLevel](New%20Unity%20Project/Assets/Shader/Chapter6/DiffuseVertexLevel.shader)
+
+不足之处: 背光面与向光面的交界处有锯齿现象, 因为胶囊是一个细分程度较低的模型, 使用逐像素光照可以解决
+
+#### 逐像素光照的实现
+
+基于逐顶点光照修改后如下
+
+[DiffusePixelLevel](New%20Unity%20Project/Assets/Shader/Chapter6/DiffusePixelLevel.shader)
+
+不足之处: 光照无法达到的地方, 无明暗变化导致背光区像一个平面, 从而失去了模型的细节表现, 使用半兰伯特(Half Lambert)光照模型解决
+
+#### 半兰伯特(Half Lambert)模型
+
+修改了兰伯特光照模型的公式, 如下
+
+$$
+c_{diffuse}=(c_{light}\cdot m_{diffuse})(\alpha(\vec{n}\cdot I)+\beta)\\
+$$
+
+* 没有使用max而是进行了缩放与偏移
+* 通常缩放与偏移都是0.5, 这样可以把[-1,1]的范围映射到[0,1]
+  * 原兰伯特模型是将点积结果都映射到0上
+
+基于逐像素光照修改后如下
+
+[HalfLambert](New%20Unity%20Project/Assets/Shader/Chapter6/HalfLambert.shader)
+
+### 在Unity Shader中实现高光反射光照模型
+
+最基本的高光反射部分计算公式如前文:
+
+$$
+c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{v} \cdot \vec{r})^{m_{gloss}}\\
+其中从左到右四个参数含义分别为:\\
+入射光线的强度与颜色c_{light}, 材质的高光反射系数m_{specular}\\
+视角方向\vec{v}, 反射方向\vec{r}\\
+其中, 反射方向\vec{r}可以通过表面法线\vec{n}与光源方向\vec{I}计算:\\
+\vec{r}=2(\vec{n}\cdot\vec{I})\vec{n}-\vec{I}\\
+$$
+
+当然CG提供了reflect(I,n)这个函数来计算反射方向
+
+#### 实践: 逐顶点光照
+
+[SpecularVertexLevel](New%20Unity%20Project/Assets/Shader/Chapter6/SpecularVertexLevel.shader)
+
+顶点着色器中计算光照再插值的过程是线性的, 破坏了原高光计算的非线性关系, 需要通过逐像素方法来实现更平滑的高光反射
+
+#### 实践: 逐像素光照
+
+[SpecularPixelLevel](New%20Unity%20Project/Assets/Shader/Chapter6/SpecularPixelLevel.shader)
+
+效果更加平滑的一种Phong光照模型
+
+#### Blinn-Phong光照模型
+
+Blinn模型的光照计算公式如下
+
+$$
+引入
+\vec{h}=\frac{\vec{v}+\vec{I}}{|\vec{v}+\vec{I}|}\\
+c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{n} \cdot \vec{h})^{m_{gloss}}\\
+$$
+
+[BlinnPhong](New%20Unity%20Project/Assets/Shader/Chapter6/BlinnPhong.shader)
+
+### 使用Unity内置的函数
+
+自己去UnityCG.cginc里面看, 下面使用内置函数改写BlinnPhong
+
+[BlinnPhong](New%20Unity%20Project/Assets/Shader/Chapter6/BlinnPhong.shader)
