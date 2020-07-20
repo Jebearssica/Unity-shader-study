@@ -1021,7 +1021,11 @@ $$
 
 $$
 引入
+<<<<<<< HEAD
 \vec{h}=\frac{\vec{v}+1}{|\vec{v}+1|}\\
+=======
+\vec{h}=\frac{\vec{v}+\vec{I}}{|\vec{v}+\vec{I}|}\\
+>>>>>>> Chapter6 completed
 c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{n} \cdot \vec{h})^{m_{gloss}}\\
 $$
 
@@ -1122,7 +1126,7 @@ Blinn模型的光照计算公式如下
 
 $$
 引入
-\vec{h}=\frac{\vec{v}+1}{|\vec{v}+1|}\\
+\vec{h}=\frac{\vec{v}+\vec{I}}{|\vec{v}+\vec{I}|}\\
 c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{n} \cdot \vec{h})^{m_{gloss}}\\
 $$
 

@@ -68,7 +68,7 @@
                 //视角方向, 6.6使用内置函数实现
                 fixed3 viewDir = normalize(UnityWorldSpaceViewDir(input.worldPos));
                 
-                //
+                //避免计算反射光线的h向量
                 fixed3 halfDir = normalize(worldLight + viewDir);
                 
                 fixed3 specular = _LightColor0.rgb * _Specular.rgb * pow(max(0, dot(worldNormal, halfDir)), _Gloss);
