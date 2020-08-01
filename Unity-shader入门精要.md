@@ -98,6 +98,13 @@
     * [实践: 逐像素光照](#实践-逐像素光照)
     * [Blinn-Phong光照模型](#blinn-phong光照模型)
   * [使用Unity内置的函数](#使用unity内置的函数)
+* [基础纹理](#基础纹理)
+  * [单张纹理](#单张纹理)
+  * [凹凸映射(bump maping)](#凹凸映射bump-maping)
+    * [实现](#实现)
+    * [Unity中的法线纹理类型](#unity中的法线纹理类型)
+  * [渐变纹理](#渐变纹理)
+  * [遮罩纹理(Mask Texture)](#遮罩纹理mask-texture)
 
 ## 欢迎来到Shader的世界
 
@@ -1021,11 +1028,7 @@ $$
 
 $$
 引入
-<<<<<<< HEAD
-\vec{h}=\frac{\vec{v}+1}{|\vec{v}+1|}\\
-=======
 \vec{h}=\frac{\vec{v}+\vec{I}}{|\vec{v}+\vec{I}|}\\
->>>>>>> Chapter6 completed
 c_{specular}=(c_{light}\cdot m_{specular})max(0,\vec{n} \cdot \vec{h})^{m_{gloss}}\\
 $$
 
@@ -1137,3 +1140,97 @@ $$
 自己去UnityCG.cginc里面看, 下面使用内置函数改写BlinnPhong
 
 [BlinnPhong](New%20Unity%20Project/Assets/Shader/Chapter6/BlinnPhong.shader)
+
+## 基础纹理
+
+纹理映射坐标: 又称uv坐标, 定义了每个顶点在纹理中对应的2D坐标
+
+Unity的2D纹理坐标符合OpenGL, 原点在纹理的左下角
+
+使用官方源代码的纹理贴图
+
+### 单张纹理
+
+使用Blinn-Phong模型计算光照
+
+[SingleTexture](New%20Unity%20Project/Assets/Shader/Chapter7/SingleTexture.shader)
+
+* 为了在纹理平铺(Tiling)中实现两种不同的Wrap Mode效果, 代码中需要通过纹理属性对纹理坐标进行变化
+
+```ShaderLab
+//实现方法output.uv = v.texcoord.xy * _MainTex_ST.xy + _MainTex_ST.zw;
+output.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
+```
+
+* Filter Mode: 图片的滤波效果, 影响放大缩小后得到的图片质量
+  * Point: 使用最近邻(nearest neighbor)滤波, 放大缩小的采样点只有一个, 实现了像素风格
+  * Bilinear: 每个目标像素找到4个邻近像素, 进行线性插值混合后得到结果, 因此图像模糊
+  * Trilinear: 在Bilinear的基础上在多级渐远纹理之间进行混合, 如果没有使用这个技术则两者一样
+* mipmapping: 多级渐远纹理, 根据不同缩放层级使用不同大小的纹理, 用空间换时间
+* Max Size: 导入的纹理大小超过了这个值, 则Unity会将纹理缩放至最大分辨率
+  * 通常纹理的长宽都是2的幂, 使用了非2的幂(Non Power of Tow, NPOT)的纹理, 则占据更多内存空间消耗更多GPU资源,
+  部分平台不支持, 会内部缩放至相近似的2的幂
+* Format: 决定了Unity内部使用哪种格式存储纹理
+
+### 凹凸映射(bump maping)
+
+目的是使用一张纹理修改模型表面的法线, 使得模型具有更多细节, 使得模型**看起来**凹凸不平(不改变模型顶点位置), 使用以下两种方法
+
+* 高度纹理(height map): 又称高度映射(height mapping), 模拟表面位移得到一个修改后的法线值
+  * 高度图其中存储的是强度值, 表示模型表面模拟的局部的海拔高度, 颜色越浅表示表面越向外凸, 颜色越深则越向内凹
+  * 可以直观反映模型表面凹凸情况, 但是计算复杂, 无法实时计算得到表面法线, 需要通过**像素灰度值**计算得到
+* 法线纹理(normal map): 又称法线映射(normal mapping), 直接储存表面法线, 由于法线方向的分量与像素分量范围不同, 因此需要进行映射对应
+  * 我们需要在纹理采样之后进行反映射从而得到之前的法线方向, 但是方向是相对于坐标空间来说的, 对于模型顶点自带的法线, 是被定义到模型空间中的
+    * 将修改后的模型空间中的表面法线存储到纹理中, 被称为模型空间的法线纹理(Object Space normal map)
+      * 实现简单更加直观, 无需初始法线和切线信息, 计算少
+      * 在纹理坐标缝合处和尖锐部分, 突变少, 能够提供平滑的边界, 由于纹理储存在同一空间下, 因此边界可以通过插值来平滑
+    * 实际使用另一种坐标空间即模型顶点的切线空间(tangent space)来存储法线, 被称为切线空间的法线纹理
+      (tangent space normal map)
+      * 每个顶点都有属于自己的切线空间, 原点为顶点本身, z轴是顶点法线方向, x轴是顶点切线方向, y轴可由zx叉积得到
+      * 自由度高, 模型空间下记录的是绝对法线信息, 仅用于创建它时的模型, 应用到其他模型就错误, 切线空间下则时相对信息, 纹理应用到不同网格上也可以得到合理的效果
+      * 可进行UV动画, 通过移动纹理的UV坐标来实现一个凹凸移动的效果(常用于水或火山熔岩这种物体上), 而模型空间下则无法实现
+      * 可重用法线纹理, 例如一个砖块可以只通过一张法线纹理作用于所有六个面
+      * 可压缩, Z方向总是正方向, 因此只需要存储两个方向, 通过计算得到另一个方向, 模型空间下每个方向都可能, 因此不可压缩
+
+![模型顶点的切线空间](images/7.12.png)
+
+#### 实现
+
+需要在计算光照模型中统一各个方向矢量所在的坐标空间
+
+* 切线空间: 光照方向与视角方向转换至切线空间
+  * 效率更高: 顶点着色器就完成光照与视角方向的转换
+* 世界空间: 采样的法线方向转换至世界空间
+  * 通用性更高: 需要先采样, 因此在片元着色器中转换, 需要在片元着色器中进行一次矩阵操作, 而有些情况就需要先采样
+
+[NormalMapTangentSpace](New%20Unity%20Project/Assets/Shader/Chapter7/NormalMapTangentSpace.shader)
+
+基于切线空间的世界空间变换的shader:
+[NormalMapWorldSpace](New%20Unity%20Project/Assets/Shader/Chapter7/NormalMapWorldSpace.shader)
+
+#### Unity中的法线纹理类型
+
+针对不同的压缩格式, Unity给出了不同的解压方法, UnityCG.cginc中的内置函数, 通常是根据两个通道推导出第三个通道, 以时间换空间
+
+### 渐变纹理
+
+[RampTexture](New%20Unity%20Project/Assets/Shader/Chapter7/RampTexture.shader)
+
+采样时halfLambert值理论上在[0,1], 可能会存在1.0001的情况
+
+* 当WrapMode = Repeat时会舍弃整数部分, 导致变成0.0001, 因此高光部分会有黑点
+* 当WrapMode = Clamp时即可解决上述问题
+
+### 遮罩纹理(Mask Texture)
+
+遮罩: 用于保护某些区域使其免于一些修改, 通常用于下面两个方面
+
+* 控制光照: 全局高光反射, 通过遮罩纹理控制一部分反射更强, 一部分反射更弱
+* 混合纹理: 制作材质时, 需要混合多个纹理, 如表现地面的草, 石头, 裸露的土地的混合
+
+使用的一般流程:
+
+* 采样得到遮罩纹理的纹理值
+* 使用其中几个通道与表面某种属性相乘, 这样就可以通过控制该通道为0来保证表面不受该属性的影响
+
+[MaskTexture](New%20Unity%20Project/Assets/Shader/Chapter7/MaskTexture.shader)
