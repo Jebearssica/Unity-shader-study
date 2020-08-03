@@ -105,6 +105,17 @@
     * [Unity中的法线纹理类型](#unity中的法线纹理类型)
   * [渐变纹理](#渐变纹理)
   * [遮罩纹理(Mask Texture)](#遮罩纹理mask-texture)
+* [透明效果](#透明效果)
+  * [为什么渲染顺序很重要](#为什么渲染顺序很重要)
+  * [Unity Shader的渲染顺序](#unity-shader的渲染顺序)
+  * [透明度测试](#透明度测试)
+  * [透明度混合](#透明度混合)
+  * [开启深度写入的半透明效果](#开启深度写入的半透明效果)
+  * [ShaderLab的混合命令](#shaderlab的混合命令)
+    * [混合等式和参数](#混合等式和参数)
+    * [混合操作](#混合操作)
+    * [常见的混合类型](#常见的混合类型)
+    * [双面渲染的透明效果](#双面渲染的透明效果)
 
 ## 欢迎来到Shader的世界
 
@@ -1234,3 +1245,176 @@ output.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
 * 使用其中几个通道与表面某种属性相乘, 这样就可以通过控制该通道为0来保证表面不受该属性的影响
 
 [MaskTexture](New%20Unity%20Project/Assets/Shader/Chapter7/MaskTexture.shader)
+
+## 透明效果
+
+实时渲染中通过控制透明通道(Alpha Channel)来实现透明, 透明度为1时完全不透明, 为0时不会显示
+
+通常使用以下两种方法来实现透明效果:
+
+* 透明度测试(Alpha Test): 无法得到真正的半透明效果
+  * 只要一个片元不满足透明度的阈值, 则整个片元被舍弃, 如果达到了透明度阈值则按照不透明物体处理
+  * 只有透明和不透明两种效果
+* 透明度混合(Alpha Blending): 可实现真正的半透明效果
+  * 使用当前片元的透明度做为混合因子与存储在颜色缓冲中的颜色进行混合
+  * 只关闭深度写入, 未关闭深度测试, 因此进行透明度混合前, 还是会进行深度测试, 如果深度值更大, 则不会混合
+
+### 为什么渲染顺序很重要
+
+对于不透明(opaque)的物体, 由于[深度缓冲](#逐片元操作per-fragment-operation),
+因此不需要考虑物体渲染的先后顺序, 它决定了哪个部分先渲染, 哪个部分被遮挡
+
+为了使得透明物体背后的表面能被看见, 需要关闭深度写入来破环深度缓冲的工作机制
+
+常用的渲染排序方法有以下两个步骤:
+
+* 先渲染所有不透明物体, 并启动它们的深度测试与深度写入
+* 根据不透明物体与摄像机的距离, 从远往近渲染, 开启深度测试关闭深度写入
+  * 排序判断是个非常麻烦的事情, 而且有许多状况无法顾及, 下面举出两个例子
+  * 因此只能"尽力而为"
+
+![循环重叠的半透明物体](images/8.3.png)
+
+![选择不同深度值代表整个物体的深度值](images/8.4.png)
+
+### Unity Shader的渲染顺序
+
+Unity提供了渲染队列(render queue)的解决方案用于解决渲染顺序的问题, 使用SubShader的Queue标签来决定模型归于哪个渲染队列
+
+| 名称以及队列索引号 |                               描述                               |
+| :----------------: | :--------------------------------------------------------------: |
+| Background = 1000  |       这个渲染队列最高优先级通常用于渲染绘制在背景上的物体       |
+|  Geometry = 2000   |                    默认的队列, 不透明物体使用                    |
+|  AlphaTest = 2450  | 需要透明度测试的物体的渲染队列, 不透明物体渲染完后再渲染更加高效 |
+| Transparent = 3000 |  以从前往后的顺序进行渲染, 所有使用了透明度的物体都使用这个队列  |
+|   Overlay = 4000   |                用于实现叠加效果, 时最后的渲染队列                |
+
+### 透明度测试
+
+在片元着色器中使用clip函数进行透明度测试
+
+```shaderlab
+void clip(float4 x)
+{
+    if(any(x<0))
+      discard;
+}
+```
+
+[AlphaTest](New%20Unity%20Project/Assets/Shader/Chapter8/AlphaTest.shader)
+
+### 透明度混合
+
+* Blend Off: 关闭混合
+* Blend SrcFactor DstFactor: 开启混合, 设置混合因子, 源颜色(该片元产生的颜色)乘SrcFactor, 目标颜色(已存在颜色缓冲的颜色)乘DstFactor, 两者相加存入颜色缓冲
+* Blend SrcFactor DstFactor, SrcFactorA DstFactorA: 使用不同的因子来混合透明通道
+* BlendOp BlendOperation: 不再使用源颜色与目标颜色相加后混合, 而是使用BlendOperation对它们进行其他操作
+
+以AlphaTest为基础进行修改: [AlphaBlend](New%20Unity%20Project/Assets/Shader/Chapter8/AlphaBlend.shader)
+
+### 开启深度写入的半透明效果
+
+之前说了关闭深度写入会产生很多问题, 如重叠产生的因排序错误导致的错误透明效果的产生, 解决方案又很复杂, 因此重新启用深度写入来实现半透明效果
+
+使用两个Pass来渲染模型: 其中一个开启深度写入但不输出颜色, 仅仅用于将模型的深度值写入深度缓冲中, 另一个Pass进行正常的透明混合, 但是多使用的一个Pass可能会造成性能降低
+
+在AlphaBlend的基础上新增一个Pass: [AlphaBlendZWrite](New%20Unity%20Project/Assets/Shader/Chapter8/AlphaBlendZWrite.shader)
+
+### ShaderLab的混合命令
+
+如何实现混合的:
+
+* 片元着色器产生一个颜色(即源颜色), 可以选择与颜色缓冲中的颜色(即目标颜色)进行混合
+* 混合后的输出颜色将会重写写入颜色缓冲中
+
+#### 混合等式和参数
+
+混合是一个逐片元的操作, 且不可编程, 但高度可配置, 通过改变混合等式(blend equation)来进行配置,
+我们通过设置混合等式中的操作和因子来配置等式
+
+* 一个等式用于混合RGB通道, 另一个等式用于混合A通道
+* 每个等式都有两个因子, 分别与源颜色和目标颜色相乘
+* 通常操作默认是加法操作
+
+根据之前的两个操作我们可以得出对应的混合等式
+
+* Blend SrcFactor DstFactor: RGB A通道使用同样的混合因子
+* Blend SrcFactor DstFactor, SrcFactorA DstFactorA: 使用不同的因子来混合透明通道
+
+$$
+O_{rgb} = SrcFactor \times S_{rgb} + DstFactor \times D_{rgb}\\
+O_{a} = SrcFactorA \times S_{a} + DstFactorA \times D_{a}
+$$
+
+下表给出ShaderLab中的混合因子
+
+|       参数       |                         描述                         |
+| :--------------: | :--------------------------------------------------: |
+|       One        |                       因子为1                        |
+|       Zero       |                       因子为0                        |
+|     SrcColor     | 因子为源颜色, 混合RGB时使用RGB分量, 混合A时使用A分量 |
+|     SrcAlpha     |                  因子为源颜色透明值                  |
+|     DstColor     |      因子为目标颜色值, RGB与A分量分配同SrcColor      |
+|     DstAlpha     |                 因子为目标颜色透明值                 |
+| OneMinusSrcColor |      因子为(1-源颜色), RGB与A分量分配同SrcColor      |
+| OneMinusSrcAlpha |                因子为(1-源颜色透明度)                |
+| OneMinusDstColor |     因子为(1-目标颜色), RGB与A分量分配同SrcColor     |
+| OneMinusDstAlpha |               因子为(1-目标颜色透明度)               |
+
+#### 混合操作
+
+可以使用BlendOp Operation进行混合操作指令
+
+下面给出ShaderLab中的操作
+
+* Add
+* Sub: 源颜色-目标颜色
+* RevSub: 目标颜色-源颜色
+* Min: 每个RGBA分量逐个比较, 选更小的
+* Max: 选更大的
+* 以及Dx11.1中支持的一些类型
+
+#### 常见的混合类型
+
+```ShaderLab
+//正常混合
+Blend SrcAlpha OneMinusSrcAlpha
+//柔和相加(Soft Addictive)
+Blend OneMinusDstColor One
+//正片叠底(Multiply), 即相乘
+Blend DstColor SrcColor
+//变暗(Darken), 其实可以不设置因子, 反正不用
+BlendOp Min
+Blend One One
+//变亮(Lighten), 其实可以不设置因子, 反正不用
+BlendOp Max
+Blend One One
+//滤色(Screen)
+Blend OneMinusDstColor One
+//等同于
+Blend One OneMinusSrcColor
+//线性减淡(Linear Dodge)
+Blend One One
+```
+
+![不同混合状态设置的效果](images/8.12.png)
+
+#### 双面渲染的透明效果
+
+默认情况下剔除了物体背面的图元, 因此之前的透明渲染无法看到正方体内部和背面, 可以使用以下命令来控制要剔除哪个面
+
+```Shaderlab
+Cull Back/Front/Off
+```
+
+##### 透明度测试的双面渲染
+
+在AlphaTest的基础上增加一个Cull Off就完成了
+
+[AlphaTestBothSide](New%20Unity%20Project/Assets/Shader/Chapter8/AlphaTestBothSide.shader)
+
+##### 透明度混合的双面渲染
+
+按照之前AlphaBlendZWrite的方法, 使用两个Pass, 一个只渲染背面, 一个只渲染正面, 并且根据Unity会顺序执行SubShader中的Pass, 因此可以保证背面总是比正面先渲染
+
+在AlphaBlend的基础上进行修改[AlphaBlendBothSide](New%20Unity%20Project/Assets/Shader/Chapter8/AlphaBlendBothSide.shader)
