@@ -4,11 +4,11 @@
 
 官方源代码地址: <https://github.com/candycat1992/Unity_Shaders_Book>
 
-本文中所有的彩色插图也都来源于上述的官方彩色插图, 本文中的所有纹理以及模型均来源于上述的官方源代码
+本文中所有的彩色插图也都来源于上述的官方彩色插图, 本文中的所有纹理以及模型均来源于上述的官方源代码, 其中Material/Objects Material/Walls也均来自于官方项目
 
 环境(如果疏漏会逐渐补充):
 
-* OS: Windows10
+* OS: Windows10 1903
 * IDE:
   * vscode
   * Unity 2018 3.7f1
