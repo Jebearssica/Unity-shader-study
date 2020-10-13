@@ -131,6 +131,20 @@
     * [不透明物体的阴影](#不透明物体的阴影)
     * [统一管理光照衰减和阴影](#统一管理光照衰减和阴影)
     * [透明度物体的阴影](#透明度物体的阴影)
+* [高级纹理](#高级纹理)
+  * [立方体纹理](#立方体纹理)
+    * [天空盒子(Skybox)](#天空盒子skybox)
+    * [用于环境映射的立方体纹理](#用于环境映射的立方体纹理)
+    * [反射](#反射)
+    * [折射](#折射)
+    * [菲涅尔反射](#菲涅尔反射)
+  * [渲染纹理](#渲染纹理)
+    * [镜子效果](#镜子效果)
+    * [玻璃效果](#玻璃效果)
+    * [渲染纹理 vs. GrabPass](#渲染纹理-vs-grabpass)
+  * [程序纹理(Procedural Texture)](#程序纹理procedural-texture)
+    * [实现简单的程序纹理](#实现简单的程序纹理)
+    * [Unity的程序材质](#unity的程序材质)
 
 ## 欢迎来到Shader的世界
 
@@ -1578,7 +1592,7 @@ WARNING: 某些宏会使用**上下文变量**进行相关运算, 因此为了�
 
 #### 透明度物体的阴影
 
-大多数不透明物体, Fallback中回调"VertexLit"即可得到正确的阴影, 而透明物体涉及到透明度测试和透明度混合, 因此需要小心设置Fallback
+大多数不透明物体, Fallback中回调"VertexLit"即可得到正���的阴影, 而透明物体涉及到透明度测试和透明度混合, 因此需要小心设置Fallback
 
 根据/chapter8/AlphaTest.shader, [AlphaTestWithShadow.shader](New%20Unity%20Project/Assets/Shader/Chapter9/AlphaTestWithShadow.shader)
 
@@ -1588,3 +1602,117 @@ WARNING: 某些宏会使用**上下文变量**进行相关运算, 因此为了�
 
 * 透明度混合需要关闭深度写入, 因此影响了阴影的生成
 * 为了使得阴影正常生成, 需要严格执行从后往前渲染的顺序, 从而使得阴影渲染变得异常复杂
+
+## 高级纹理
+
+### 立方体纹理
+
+* 立方体纹理(CubeMap)是环境映射(Environment Mapping)的一种实现方法
+  * 环境映射可以模拟物体周围的环境, 使用了环境映射的物体可以像镀了一层金属一样反射出周围的环境
+* 立方体纹理包含六个面, 对应着立方体的六个面
+* 需要提供一个3D纹理坐标进行采样
+  * 这个坐标表示了3D空间中的一个矢量, 它从立方体中心出发, 向外延伸会和立方体纹理之一发生相交, 采样的结果就是通过这个交点计算而来的
+* 优点: 简单快速且效果好
+* 缺点:
+  * 场景发生变化时, 就需要重新生成立方体纹理
+  * 仅能够反射环境, 但不能够反射使用了该纹理的物体本身
+    * 因为立方体纹理不能模拟多次反射的效果
+    * 因此最好对凸面体使用立方体纹理(凹面体会进行自反射)
+* 通常应用于天空盒子和环境映射中
+
+#### 天空盒子(Skybox)
+
+这是一种游戏模拟背景的常用方法, 在Unity中, 它是在所有不透明物体渲染完毕之后渲染的
+
+#### 用于环境映射的立方体纹理
+
+可以实现金属质感, 创建方法有以下几种:
+
+* 提供一张特殊布局的纹理, 并用它进行创建
+* 手动创建cubemap资源, 并赋六张图
+* 脚本生成
+
+#### 反射
+
+[Reflection.shader](New%20Unity%20Project/Assets/Shader/Chapter10/Reflection.shader)
+
+#### 折射
+
+物理上需要计算光线折射进入与折射射出的两道光线, 然而对于实时渲染, 模拟折射射出十分困难, 并且去掉了看起来变化也不大
+
+根据Reflection.shader进行修改:
+
+[Refraction.shader](New%20Unity%20Project/Assets/Shader/Chapter10/Refraction.shader)
+
+#### 菲涅尔反射
+
+描述了一种光学现象: 折射光和反射光存在一定比例关系, 然而其非常复杂, 因此使用一些近似公式进行简化计算
+
+$$
+Schlick菲涅尔近似等式:\\
+F_{schlick}(\vec{v},\vec{n})=F_0+(1-F_0)(1-\vec{v}\cdot \vec{n})^5\\
+其中, F_0是反射常数, 用于控制菲涅尔反射的强度, \vec{v}是视角方向, \vec{n}是表面法线\\
+Empricial菲涅尔近似等式:\\
+F_{Empricial}(\vec{v},\vec{n})=max(0,min(1,bias+scale\times(1-\vec{v}\cdot\vec{n})^{power}))\\
+其中bias scale power都是控制项
+$$
+
+根据Reflection.shader进行修改, 是哦那个Schlick菲涅尔近似等式:
+
+[Fesnel.shader](New%20Unity%20Project/Assets/Shader/Chapter10/Fresnel.shader)
+
+### 渲染纹理
+
+渲染目标纹理(Render Target Texture,RTT): 是一个中间缓冲, 用于存放即将显示到屏幕上的**整个三维场景**, 与之对应的是传统的帧缓冲和后置缓冲(back buffer)
+
+其中还有一种技术叫多重渲染目标(Multiple Render Target,MRT): 允许把场景渲染到多个RTT中, 不再需要为每个目标单独渲染完整的场景
+
+Unity为RTT定义了一种专门的类型, 渲染纹理(Render Texture), 使用方法有如下两种:
+
+* 创建一个渲染纹理, 然后将摄像机的渲染目标设置为该渲染纹理
+  * 摄像机的渲染结果会实时更新到渲染纹理上, 且不会显示在屏幕上
+  * 可以选择渲染纹理的分辨率以及调整滤波模式等纹理属性
+* 在屏幕后处理中使用函数获取当前屏幕图像, Unity会将其放在与其分辨率等同的渲染纹理中
+
+#### 镜子效果
+
+将渲染纹理进行水平方向向上翻转后, 直接显示到物体上
+
+[Mirror.shader](New%20Unity%20Project/Assets/Shader/Chapter10/Mirror.shader)
+
+#### 玻璃效果
+
+在Unity中使用一种特殊的Pass来获取屏幕图像, GrabPass, 同时它也可以让我们对图像进行后续的复杂处理
+
+Scene使用镜子效果的Scene
+
+[GlassRefraction.shader](New%20Unity%20Project/Assets/Shader/Chapter10/GlassRefraction.shader)
+
+不过我使用渲染纹理的时候, 没有用相机做为position, 我直接选的point light
+
+#### 渲染纹理 vs. GrabPass
+
+* GrabPass:
+  * 实现简单, 几行代码直接抓取屏幕
+  * 效率更低, 截图的图像分辨率与显示屏幕一致, 可能产生高带宽消耗
+  * 无需重新渲染, 需要CPU读取back buffer, 破坏CPU与GPU的并行性, 耗时长
+* 渲染纹理
+  * 实现复杂, 创造纹理+额外相机, 设置相机render target, 最后传递渲染纹理给对应shader
+  * 效率更高, 支持自定义
+  * 需要重新渲染部分场景, 可通过调整相机渲染层来减少二次渲染的场景大小
+
+Unity引入了命令缓冲(commmand buffer), 来扩展Unity的渲染流水线, 并且通过这个我们也能实现类似屏幕抓取的效果
+
+### 程序纹理(Procedural Texture)
+
+使用特定算法实现个性化图案以及其他真实的自然元素, 并且能够通过各种参数调节图案属性
+
+#### 实现简单的程序纹理
+
+生成一个波点纹理
+
+[ProceduralTextureGeneration.cs](New%20Unity%20Project/Assets/Script/Chapter10/ProceduralTextureGeneration.cs)
+
+#### Unity的程序材质
+
+使用的是Substance Designer的外部软件生成的, BUG巨多, 恶心人

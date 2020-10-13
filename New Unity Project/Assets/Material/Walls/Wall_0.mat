@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: Wall_0
-  m_Shader: {fileID: 4800000, guid: 734b314e4b54b4c77925b9d6d0724c61, type: 3}
+  m_Shader: {fileID: 4800000, guid: 74203dd49384a1245aa83d8250267a1a, type: 3}
   m_ShaderKeywords: 
   m_LightmapFlags: 5
   m_EnableInstancingVariants: 0
@@ -20,7 +20,7 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BumpMap:
-        m_Texture: {fileID: 2800000, guid: 3d0d84a5055f7fb40bf71a422c7b3cc6, type: 3}
+        m_Texture: {fileID: 2800000, guid: c50aeae2fd91b4a498806f36c9f954f0, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailAlbedoMap:
@@ -40,7 +40,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 31095fb6a0fed0d4a95df9481df488bc, type: 3}
+        m_Texture: {fileID: 2800000, guid: 282593941367b864ba3342b811d6771b, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MetallicGlossMap:
